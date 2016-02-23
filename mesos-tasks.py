@@ -27,7 +27,7 @@ def get_stats(container, cli):
 
 def get_docker_stats():
     """Fetch docker stats"""
-    cli = Client(base_url='unix://var/run/docker.sock')
+    cli = Client(base_url='tcp://0.0.0.0:2375')
     containers = map(container_name, cli.containers())
     result = {}
     for container in containers:
@@ -118,11 +118,10 @@ def read_stats(conf):
             continue
 
         info = tasks[task["source"]]
-        app = 'default'
         if "collectd_app" in info["labels"]:
-            app = info["labels"]["collectd_app"].replace(".", "_")
-
-        instance = task["source"].replace(".", "_")
+            app = info["labels"]["collectd_app"].replace(".", "_") + '.' + task["source"].replace(".", "_")
+        else:
+            app = info['framework_name'].replace(".", "_")  + '.' + info['task_name'].replace(".", "_")
 
         stats = task["statistics"]
 
@@ -133,11 +132,9 @@ def read_stats(conf):
             if metric not in stats:
                 continue
 
-            plugin_instance =  app + '.' + instance + '.' + info['framework_name'].replace(".", "_")  + '.' + info['task_name'].replace(".", "_")
-
             val = collectd.Values(plugin="mesos-tasks")
             val.type = "gauge"
-            val.plugin_instance = plugin_instance
+            val.plugin_instance = app
             val.type_instance = metric
             val.values = [int(stats[metric] * multiplier)]
             val.dispatch()
