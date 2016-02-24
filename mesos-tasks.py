@@ -34,13 +34,14 @@ def get_docker_stats():
         stats = get_stats(container, cli)
         inspection = cli.inspect_container(container)
         envs =  inspection['Config']['Env']
-        task_id = (name for name in envs if name.split('=')[0] == 'MESOS_TASK_ID' or name.split('=')[0] == 'mesos_task_id').next()
-        result[task_id.split('=')[1]] = {
-            'docker_memory_usage': stats['memory_stats']['usage'],
-            'docker_memory_limit': stats['memory_stats']['limit'],
-            'docker_cpu_total': stats['cpu_stats']['cpu_usage']['total_usage']
-        }
-        stats
+        task_id = next((name for name in envs if name.split('=')[0] == 'MESOS_TASK_ID' or name.split('=')[0] == 'mesos_task_id'), "")
+        if task_id !="":
+            result[task_id.split('=')[1]] = {
+                'docker_memory_usage': stats['memory_stats']['usage'],
+                'docker_memory_limit': stats['memory_stats']['limit'],
+                'docker_cpu_total': stats['cpu_stats']['cpu_usage']['total_usage']
+            }
+
     return result
 
 def configure_callback(conf):
