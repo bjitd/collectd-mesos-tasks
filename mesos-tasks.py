@@ -1,3 +1,5 @@
+#! /usr/bin/env python
+
 import collectd
 import json
 import urllib2
@@ -111,14 +113,15 @@ def read_stats(conf):
                 info["framework_name"] = framework["name"]
                 info["task_name"] = task["name"]
 
-                tasks[task["id"]] = info
+                tasks[framework["id"] + "-"+  task["id"]] = info
 
     for task in metrics:
-        if task["source"] not in tasks:
+        key = task["framework_id"] + "-" + task["source"]
+        if key not in tasks:
             collectd.warning("mesos-tasks plugin: Task %s found in metrics, but missing in state" % task["source"])
             continue
 
-        info = tasks[task["source"]]
+        info = tasks[key]
         if "collectd_app" in info["labels"]:
             app = info["labels"]["collectd_app"].replace(".", "_") + '.' + task["source"].replace(".", "_")
         else:
@@ -127,7 +130,7 @@ def read_stats(conf):
         stats = task["statistics"]
 
         if task["source"] in docker_stats:
-           stats=dict(stats.items() + docker_stats[task["source"]].items())
+            stats=dict(stats.items() + docker_stats[task["source"]].items())
 
         for metric, multiplier in METRICS.iteritems():
             if metric not in stats:
