@@ -15,8 +15,11 @@ METRICS = {
     "mem_limit_bytes": 1,
     "mem_rss_bytes": 1,
     "docker_cpu_total": 1,
+    "docker_cpu_system": 1,
     "docker_memory_limit": 1,
-    "docker_memory_usage": 1
+    "docker_memory_usage": 1,
+    "docker_cpu_percent": 1,
+    "docker_cpu_throttling_time": 1
 }
 
 def container_name(container):
@@ -29,19 +32,38 @@ def get_stats(container, cli):
 
 def get_docker_stats():
     """Fetch docker stats"""
+
     cli = Client(base_url='tcp://0.0.0.0:2375')
     containers = map(container_name, cli.containers())
     result = {}
+    stats = {}
+    stats_after_delay = {}
     for container in containers:
-        stats = get_stats(container, cli)
+        stats[container] = get_stats(container, cli)
+
+    time.sleep(2)
+
+    for container in containers:
+        stats_after_delay[container] = get_stats(container, cli)
+
+    for container in containers:
         inspection = cli.inspect_container(container)
         envs =  inspection['Config']['Env']
         task_id = next((name for name in envs if name.split('=')[0] == 'MESOS_TASK_ID' or name.split('=')[0] == 'mesos_task_id'), "")
+        if task_id =="":
+            task_id = container.split('.')[1]
+        else:
+            task_id = task_id.split('=')[1]
+
         if task_id !="":
-            result[task_id.split('=')[1]] = {
-                'docker_memory_usage': stats['memory_stats']['usage'],
-                'docker_memory_limit': stats['memory_stats']['limit'],
-                'docker_cpu_total': stats['cpu_stats']['cpu_usage']['total_usage']
+            cpu_percent = (stats_after_delay[container]['cpu_stats']['cpu_usage']['total_usage']- stats[container]['cpu_stats']['cpu_usage']['total_usage']) / float(stats_after_delay[container]['cpu_stats']['system_cpu_usage'] - stats[container]['cpu_stats']['system_cpu_usage']) * 1000
+            result[task_id] = {
+                'docker_memory_usage': stats[container]['memory_stats']['usage'],
+                'docker_memory_limit': stats[container]['memory_stats']['limit'],
+                'docker_cpu_total': stats[container]['cpu_stats']['cpu_usage']['total_usage'],
+                'docker_cpu_percent': cpu_percent,
+                'docker_cpu_system': stats[container]['cpu_stats']['system_cpu_usage'],
+                'docker_cpu_throttling_time': stats[container]['cpu_stats']['throttling_data']['throttled_time']
             }
 
     return result
@@ -112,6 +134,7 @@ def read_stats(conf):
                 info["labels"] = labels
                 info["framework_name"] = framework["name"]
                 info["task_name"] = task["name"]
+                info["container"] = executor["container"]
 
                 tasks[framework["id"] + "-"+  task["id"]] = info
 
@@ -131,6 +154,8 @@ def read_stats(conf):
 
         if task["source"] in docker_stats:
             stats=dict(stats.items() + docker_stats[task["source"]].items())
+        elif info["container"] in docker_stats:
+            stats=dict(stats.items() + docker_stats[info["container"]].items())
 
         for metric, multiplier in METRICS.iteritems():
             if metric not in stats:
