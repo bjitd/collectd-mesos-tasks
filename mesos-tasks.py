@@ -4,6 +4,10 @@ import collectd
 import json
 import urllib2
 import os
+import time
+import datetime
+import json
+import requests
 from docker import Client
 
 CONFIGS = []
@@ -22,6 +26,8 @@ METRICS = {
     "docker_cpu_throttling_time": 1
 }
 
+prev_docker_stats = {}
+
 def container_name(container):
     return container['Names'][0]
 
@@ -33,6 +39,7 @@ def get_stats(container, cli):
 def get_docker_stats():
     """Fetch docker stats"""
 
+    global prev_docker_stats
     cli = Client(base_url='tcp://0.0.0.0:2375')
     containers = map(container_name, cli.containers())
     result = {}
@@ -40,11 +47,6 @@ def get_docker_stats():
     stats_after_delay = {}
     for container in containers:
         stats[container] = get_stats(container, cli)
-
-    time.sleep(2)
-
-    for container in containers:
-        stats_after_delay[container] = get_stats(container, cli)
 
     for container in containers:
         inspection = cli.inspect_container(container)
@@ -56,7 +58,10 @@ def get_docker_stats():
             task_id = task_id.split('=')[1]
 
         if task_id !="":
-            cpu_percent = (stats_after_delay[container]['cpu_stats']['cpu_usage']['total_usage']- stats[container]['cpu_stats']['cpu_usage']['total_usage']) / float(stats_after_delay[container]['cpu_stats']['system_cpu_usage'] - stats[container]['cpu_stats']['system_cpu_usage']) * 1000
+            if task_id in prev_docker_stats:
+                cpu_percent = (stats[container]['cpu_stats']['cpu_usage']['total_usage']- prev_docker_stats[task_id]['docker_cpu_total']) / float(stats[container]['cpu_stats']['system_cpu_usage'] - prev_docker_stats[task_id]['docker_cpu_system']) * 1000 * len(stats[container]['cpu_stats']['cpu_usage']['percpu_usage'])
+            else:
+                cpu_percent = 0
             result[task_id] = {
                 'docker_memory_usage': stats[container]['memory_stats']['usage'],
                 'docker_memory_limit': stats[container]['memory_stats']['limit'],
@@ -66,6 +71,7 @@ def get_docker_stats():
                 'docker_cpu_throttling_time': stats[container]['cpu_stats']['throttling_data']['throttled_time']
             }
 
+    prev_docker_stats = result
     return result
 
 def configure_callback(conf):
@@ -73,8 +79,11 @@ def configure_callback(conf):
 
     host = "127.0.0.1"
     port = 5051
+    post_endpoint = ""
 
     for node in conf.children:
+        if node.key == "PostEndpoint":
+            post_endpoint = node.values[0]
         if node.key == "Host":
             host = node.values[0]
         elif node.key == "Port":
@@ -85,6 +94,7 @@ def configure_callback(conf):
     CONFIGS.append({
         "host": host,
         "port": port,
+        "post_endpoint": post_endpoint
     })
 
 def fetch_json(url):
@@ -167,6 +177,22 @@ def read_stats(conf):
             val.type_instance = metric
             val.values = [int(stats[metric] * multiplier)]
             val.dispatch()
+        send_post(info, stats, conf)
+
+def send_post(info, stats, conf):
+    if conf["post_endpoint"] == "":
+        return
+
+    payload = { 'framework_name': info["framework_name"], 'task_name': info["task_name"], 'host': conf["host"], 'timestamp': datetime.datetime.utcnow().isoformat() }
+
+    for metric, multiplier in METRICS.iteritems():
+        if metric not in stats:
+            continue
+        payload[metric] = int(stats[metric] * multiplier)
+    try:
+        requests.post(conf["post_endpoint"], data=json.dumps(payload))
+    except:
+        collectd.error("error during sending %s, %s" % (json.dumps(payload), conf["post_endpoint"]))
 
 def read_callback():
     """Read stats from configured slaves"""
