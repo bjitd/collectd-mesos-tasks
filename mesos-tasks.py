@@ -84,7 +84,7 @@ def configure_callback(conf):
     for node in conf.children:
         if node.key == "PostEndpoint":
             post_endpoint = node.values[0]
-        if node.key == "Host":
+        elif node.key == "Host":
             host = node.values[0]
         elif node.key == "Port":
             port = int(node.values[0])
