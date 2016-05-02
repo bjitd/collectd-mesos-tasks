@@ -53,7 +53,8 @@ def get_docker_stats():
         envs =  inspection['Config']['Env']
         task_id = next((name for name in envs if name.split('=')[0] == 'MESOS_TASK_ID' or name.split('=')[0] == 'mesos_task_id'), "")
         if task_id =="":
-            task_id = container.split('.')[1]
+            if '.' in container:
+                task_id = container.split('.')[1]
         else:
             task_id = task_id.split('=')[1]
 
