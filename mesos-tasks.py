@@ -6,7 +6,6 @@ import urllib2
 import os
 import time
 import datetime
-import json
 import requests
 from docker import Client
 
